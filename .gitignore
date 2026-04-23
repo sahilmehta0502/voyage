@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.*
+
+# Outputs (Excel reports — generated at runtime)
+backend/outputs/
+*.xlsx
+
+# Data (downloaded separately)
+backend/data/bmtc-gtfs/
+backend/data/crew/
+
+# Node
+owner-portal/node_modules/
+owner-portal/build/
+passenger-portal/node_modules/
+passenger-portal/build/
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
