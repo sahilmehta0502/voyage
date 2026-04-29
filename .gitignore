@@ -1,11 +1,17 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 .venv/
 venv/
 *.egg-info/
 dist/
 build/
+
+# Backend specific
+backend/__pycache__/
+backend/**/*.pyc
 
 # Database
 *.db
@@ -14,21 +20,36 @@ build/
 # Environment
 .env
 .env.*
+.env.local
+.env.production
 
-# Outputs (Excel reports — generated at runtime)
+# Outputs
 backend/outputs/
 *.xlsx
 
-# Data (downloaded separately)
+# Data
 backend/data/bmtc-gtfs/
 backend/data/crew/
 
 # Node
+node_modules/
 owner-portal/node_modules/
-owner-portal/build/
 passenger-portal/node_modules/
+
+owner-portal/build/
 passenger-portal/build/
+owner-portal/dist/
+passenger-portal/dist/
+
 npm-debug.log*
+
+# Vercel
+.vercel/
+
+# Logs & temp
+*.log
+*.tmp
+*.swp
 
 # IDE
 .vscode/

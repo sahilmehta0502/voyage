@@ -12,7 +12,9 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "voyage-secret-2024")
     db.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})   # allow all origins in dev
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+    
 
     supervisor = None
 
