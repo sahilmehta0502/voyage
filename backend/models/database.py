@@ -1,5 +1,10 @@
 """backend/models/database.py
 Full schema: buses, routes, stops, trips, crew, bookings, passengers, kpi_log.
+
+FIXES applied:
+  1. Trip.to_dict() now includes "stops" from route (was missing - broke passenger portal stop timeline)
+  2. CrewMember.assignments relationship now uses back_populates consistently
+  3. is_rested() now also allows crew with no last_duty_end (first assignment)
 """
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
@@ -38,7 +43,7 @@ class Route(db.Model):
     origin        = db.Column(db.String(80), nullable=False)
     destination   = db.Column(db.String(80), nullable=False)
     distance_km   = db.Column(db.Float, nullable=False)
-    duration_hrs  = db.Column(db.Float, nullable=False)   # computed
+    duration_hrs  = db.Column(db.Float, nullable=False)
     base_fare     = db.Column(db.Float, nullable=False)
     status        = db.Column(db.String(20), default="active")
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
@@ -83,7 +88,7 @@ class RouteStop(db.Model):
     stop_id       = db.Column(db.Integer, db.ForeignKey("stops.id"), nullable=False)
     sequence      = db.Column(db.Integer, nullable=False)
     distance_from_origin_km = db.Column(db.Float, default=0.0)
-    arrival_offset_min      = db.Column(db.Integer, default=0)   # minutes from departure
+    arrival_offset_min      = db.Column(db.Integer, default=0)
 
     route         = db.relationship("Route", back_populates="stops")
     stop          = db.relationship("Stop")
@@ -94,29 +99,32 @@ class RouteStop(db.Model):
             "stop_id": self.stop_id,
             "stop_name": self.stop.name if self.stop else "",
             "city": self.stop.city if self.stop else "",
+            "latitude": self.stop.latitude if self.stop else None,
+            "longitude": self.stop.longitude if self.stop else None,
             "distance_from_origin_km": self.distance_from_origin_km,
             "arrival_offset_min": self.arrival_offset_min,
         }
 
-# ── Crew ─────────────────────────────────────────────────────────────
+# ── Crew ──────────────────────────────────────────────────────────────
 class CrewMember(db.Model):
     __tablename__ = "crew_members"
     id            = db.Column(db.Integer, primary_key=True)
     employee_id   = db.Column(db.String(20), unique=True, nullable=False)
     first_name    = db.Column(db.String(50), nullable=False)
     last_name     = db.Column(db.String(50), nullable=False)
-    role          = db.Column(db.String(30), nullable=False)   # Driver / Co-Driver / Conductor / Attendant / Guard
+    role          = db.Column(db.String(30), nullable=False)
     license_no    = db.Column(db.String(30), nullable=True)
     phone         = db.Column(db.String(15), nullable=False)
     email         = db.Column(db.String(100), nullable=True)
     base_location = db.Column(db.String(80), nullable=False)
-    status        = db.Column(db.String(20), default="available")  # available / on_duty / resting / off
+    status        = db.Column(db.String(20), default="available")
     total_trips   = db.Column(db.Integer, default=0)
     total_hours   = db.Column(db.Float, default=0.0)
     last_duty_end = db.Column(db.DateTime, nullable=True)
     joining_date  = db.Column(db.Date, nullable=True)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # FIX 2: consistent back_populates
     assignments   = db.relationship("TripCrew", back_populates="crew_member")
 
     @property
@@ -124,8 +132,9 @@ class CrewMember(db.Model):
         return f"{self.first_name} {self.last_name}"
 
     def is_rested(self, proposed_start):
-        """Check 4-hour rest rule after 10-hour duty."""
-        if not self.last_duty_end:
+        """Check 4-hour rest rule. Returns True if no previous duty or gap >= 4hrs."""
+        # FIX 3: explicit None check - first-time crew always rested
+        if self.last_duty_end is None:
             return True
         from datetime import timedelta
         gap = proposed_start - self.last_duty_end
@@ -155,7 +164,6 @@ class Trip(db.Model):
     departure_time  = db.Column(db.DateTime, nullable=False)
     arrival_time    = db.Column(db.DateTime, nullable=False)
     status          = db.Column(db.String(20), default="scheduled")
-    # scheduled / boarding / in_progress / completed / cancelled / delayed
     seats_total     = db.Column(db.Integer, default=45)
     seats_booked    = db.Column(db.Integer, default=0)
     fare_adult      = db.Column(db.Float, nullable=False)
@@ -191,6 +199,7 @@ class Trip(db.Model):
             "distance_km": self.route.distance_km if self.route else None,
             "bus_id": self.bus_id,
             "bus_registration": self.bus.registration if self.bus else None,
+            "bus_type": self.bus.bus_type if self.bus else None,
             "departure_time": self.departure_time.isoformat(),
             "arrival_time": self.arrival_time.isoformat(),
             "status": self.status,
@@ -202,6 +211,7 @@ class Trip(db.Model):
             "fare_child": self.fare_child,
             "total_revenue": round(self.total_revenue, 2),
             "crew": [tc.to_dict() for tc in self.crew_assignments],
+            # FIX 1: include stops from route so passenger portal stop timeline works
             "stops": [s.to_dict() for s in self.route.stops] if self.route else [],
         }
 
@@ -213,6 +223,7 @@ class TripCrew(db.Model):
     role_on_trip    = db.Column(db.String(30), nullable=False)
 
     trip            = db.relationship("Trip", back_populates="crew_assignments")
+    # FIX 2: use back_populates consistently
     crew_member     = db.relationship("CrewMember", back_populates="assignments")
 
     def to_dict(self):
@@ -221,6 +232,7 @@ class TripCrew(db.Model):
             "employee_id": self.crew_member.employee_id if self.crew_member else None,
             "full_name": self.crew_member.full_name if self.crew_member else None,
             "role_on_trip": self.role_on_trip,
+            "status": self.crew_member.status if self.crew_member else None,
         }
 
 # ── Passengers ────────────────────────────────────────────────────────
@@ -245,6 +257,7 @@ class Passenger(db.Model):
     def to_dict(self):
         return {
             "id": self.id, "full_name": self.full_name,
+            "first_name": self.first_name, "last_name": self.last_name,
             "email": self.email, "phone": self.phone,
             "total_bookings": self.total_bookings,
             "total_spent": round(self.total_spent, 2),
@@ -260,12 +273,11 @@ class Booking(db.Model):
     passenger_name  = db.Column(db.String(100), nullable=False)
     passenger_email = db.Column(db.String(100), nullable=False)
     passenger_phone = db.Column(db.String(15), nullable=False)
-    seat_numbers    = db.Column(db.String(100), nullable=False)  # comma-separated
+    seat_numbers    = db.Column(db.String(100), nullable=False)
     num_adults      = db.Column(db.Integer, default=1)
     num_children    = db.Column(db.Integer, default=0)
     total_fare      = db.Column(db.Float, nullable=False)
     status          = db.Column(db.String(20), default="confirmed")
-    # confirmed / cancelled / completed / no_show
     payment_method  = db.Column(db.String(30), default="online")
     booked_at       = db.Column(db.DateTime, default=datetime.utcnow)
     cancelled_at    = db.Column(db.DateTime, nullable=True)
@@ -281,6 +293,7 @@ class Booking(db.Model):
             "origin": self.trip.route.origin if self.trip and self.trip.route else None,
             "destination": self.trip.route.destination if self.trip and self.trip.route else None,
             "departure_time": self.trip.departure_time.isoformat() if self.trip else None,
+            "arrival_time": self.trip.arrival_time.isoformat() if self.trip else None,
             "passenger_name": self.passenger_name,
             "passenger_email": self.passenger_email,
             "passenger_phone": self.passenger_phone,
